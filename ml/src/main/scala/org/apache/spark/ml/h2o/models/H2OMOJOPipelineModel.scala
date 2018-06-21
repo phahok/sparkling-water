@@ -60,13 +60,18 @@ class H2OMOJOPipelineModel(val mojoData: Array[Byte], override val uid: String)
   private def prepareBooleans(colType: Type, colData: Any): Any = {
     if (colData == null) {
       null
-    } else if (colType.isnumeric && colData.toString.toLowerCase() == "true") {
+    } else if(colType == Type.Bool){
+      // expected is Bool, do nothing
+      colData
+    } else if (colType != Type.Bool && colType.isnumeric && colData.toString.toLowerCase() == "true") {
+      // expected is Numeric value, convert to number
       1
-    } else if (colType.isnumeric && colData.toString.toLowerCase() == "false") {
+    } else if (colType != Type.Bool && colType.isnumeric && colData.toString.toLowerCase() == "false") {
       0
     } else {
       colData
     }
+
   }
 
   private val modelUdf = (names: Array[String]) =>
@@ -82,16 +87,27 @@ class H2OMOJOPipelineModel(val mojoData: Array[Byte], override val uid: String)
             val prepared = prepareBooleans(m.getInputMeta.getColumnType(colName), colData)
 
             prepared match {
-              case null => rowBuilder.setValue(colName, null)
               case v: Boolean => rowBuilder.setBool(colName, v)
+              case v: Char => rowBuilder.setChar(colName, v)
+              case v: Byte => rowBuilder.setByte(colName, v)
+              case v: Short => rowBuilder.setShort(colName, v)
               case v: Int => rowBuilder.setInt(colName, v)
               case v: Long => rowBuilder.setLong(colName, v)
               case v: Float => rowBuilder.setFloat(colName, v)
               case v: Double => rowBuilder.setDouble(colName, v)
-              case v : String => if (m.getInputMeta.getColumnType(colName).javatype == "string") rowBuilder.setStr(colName, v) else rowBuilder.setValue(colName, v)
-              case v: java.sql.Timestamp => rowBuilder.setDateTime(colName, v.toString)
-              case v: java.sql.Date => rowBuilder.setDateTime(colName, v.toString)
-              case v: Any => rowBuilder.setValue(colName, v.toString)
+              case v : String => if (m.getInputMeta.getColumnType(colName).isAssignableFrom(classOf[String])){
+                // if String is expected, no need to do the parse
+                rowBuilder.setString(colName, v)
+              } else {
+                // some other type is expected, we need to perform the parse
+                rowBuilder.setValue(colName, v)
+              }
+              case v: java.sql.Timestamp => rowBuilder.setTimestamp(colName, v)
+              case v: java.sql.Date => rowBuilder.setDate(colName, v)
+              case null => rowBuilder.setValue(colName, null)
+              case v: Any =>
+                // Some other type, do the parse
+                rowBuilder.setValue(colName, v.toString)
             }
         }
 
